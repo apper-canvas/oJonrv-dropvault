@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Upload, X, Check, AlertCircle, FileText, Image, File } from 'lucide-react';
+import { useFirebase } from '../firebase/context';
 
 const MainFeature = ({ onFileUpload }) => {
   const [isDragging, setIsDragging] = useState(false);
@@ -9,6 +10,8 @@ const MainFeature = ({ onFileUpload }) => {
   const [uploadStatus, setUploadStatus] = useState({});
   const [errors, setErrors] = useState({});
   const fileInputRef = useRef(null);
+  
+  const { uploadFile } = useFirebase();
 
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
@@ -59,36 +62,40 @@ const MainFeature = ({ onFileUpload }) => {
         newProgress[file.name] = 0;
       });
       setUploadProgress(prev => ({ ...prev, ...newProgress }));
+      setUploadStatus(prev => {
+        const newStatus = { ...prev };
+        validFiles.forEach(file => {
+          newStatus[file.name] = 'uploading';
+        });
+        return newStatus;
+      });
       
-      // Simulate upload for each file
+      // Upload each file to Firebase
       validFiles.forEach(file => {
-        simulateFileUpload(file);
+        uploadFileToFirebase(file);
       });
     }
   }, []);
 
-  const simulateFileUpload = useCallback((file) => {
-    setUploadStatus(prev => ({ ...prev, [file.name]: 'uploading' }));
-    
-    let progress = 0;
-    const interval = setInterval(() => {
-      progress += Math.random() * 10;
-      if (progress >= 100) {
-        progress = 100;
-        clearInterval(interval);
-        
-        // Simulate a small delay before marking as complete
-        setTimeout(() => {
-          setUploadStatus(prev => ({ ...prev, [file.name]: 'complete' }));
-          
-          // Add to parent component's uploaded files
-          onFileUpload([file]);
-        }, 500);
-      }
+  const uploadFileToFirebase = useCallback(async (file) => {
+    try {
+      const updateProgress = (progress) => {
+        setUploadProgress(prev => ({ ...prev, [file.name]: progress }));
+      };
       
-      setUploadProgress(prev => ({ ...prev, [file.name]: progress }));
-    }, 300);
-  }, [onFileUpload]);
+      const fileData = await uploadFile(file, updateProgress);
+      
+      // Mark as complete
+      setUploadStatus(prev => ({ ...prev, [file.name]: 'complete' }));
+      
+      // Add to parent component's uploaded files
+      onFileUpload([fileData]);
+    } catch (error) {
+      console.error('Upload error:', error);
+      setErrors(prev => ({ ...prev, [file.name]: `Upload failed: ${error.message}` }));
+      setUploadStatus(prev => ({ ...prev, [file.name]: 'error' }));
+    }
+  }, [uploadFile, onFileUpload]);
 
   const removeFile = useCallback((fileName) => {
     setFiles(prev => prev.filter(file => file.name !== fileName));
@@ -222,7 +229,9 @@ const MainFeature = ({ onFileUpload }) => {
                         className={`absolute top-0 left-0 h-full rounded-full ${
                           uploadStatus[file.name] === 'complete' 
                             ? 'bg-green-500' 
-                            : 'bg-primary'
+                            : uploadStatus[file.name] === 'error'
+                              ? 'bg-red-500'
+                              : 'bg-primary'
                         }`}
                       />
                     </div>
@@ -231,6 +240,10 @@ const MainFeature = ({ onFileUpload }) => {
                       {uploadStatus[file.name] === 'complete' ? (
                         <span className="text-green-500 flex items-center">
                           <Check size={14} className="mr-1" /> Upload complete
+                        </span>
+                      ) : uploadStatus[file.name] === 'error' ? (
+                        <span className="text-red-500 flex items-center">
+                          <AlertCircle size={14} className="mr-1" /> Upload failed
                         </span>
                       ) : (
                         <span className="text-primary">
