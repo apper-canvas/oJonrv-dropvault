@@ -1,57 +1,82 @@
-import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { Trash2, ExternalLink, FileText, Image, File } from 'lucide-react';
-import MainFeature from '../components/MainFeature';
-import { useFirebase } from '../firebase/context';
-import { format } from 'date-fns';
+import { useState, useEffect } from 'react'
+import { motion } from 'framer-motion'
+import { Trash2, ExternalLink, FileText, Image, File, LogOut } from 'lucide-react'
+import { useSelector, useDispatch } from 'react-redux'
+import { useContext } from 'react'
+import { AuthContext } from '../App'
+import MainFeature from '../components/MainFeature'
+import { fileService } from '../services/fileService'
+import { format } from 'date-fns'
 
 const Home = () => {
-  const [uploadedFiles, setUploadedFiles] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const { getFiles, deleteFile } = useFirebase();
+  const [uploadedFiles, setUploadedFiles] = useState([])
+  const [loading, setLoading] = useState(true)
+  const { user } = useSelector((state) => state.user)
+  const { logout } = useContext(AuthContext)
   
-  // Load files from Firebase on component mount
+// Load files from Apper backend on component mount
   useEffect(() => {
     const loadFiles = async () => {
-      setLoading(true);
+      setLoading(true)
       try {
-        const files = await getFiles();
-        setUploadedFiles(files);
+        const files = await fileService.fetchAllFiles(user?.userId)
+        setUploadedFiles(files || [])
       } catch (error) {
-        console.error('Error loading files:', error);
+        console.error('Error loading files:', error)
+        setUploadedFiles([])
       } finally {
-        setLoading(false);
+        setLoading(false)
       }
-    };
+    }
     
-    loadFiles();
-  }, [getFiles]);
+    if (user?.userId) {
+      loadFiles()
+    }
+  }, [user?.userId])
   
   const handleFileUpload = (files) => {
     setUploadedFiles(prev => [...files, ...prev]);
   };
   
-  const handleDeleteFile = async (fileId, fileName) => {
+const handleDeleteFile = async (fileId) => {
     try {
-      const filePath = `files/${fileId}/${fileName}`;
-      await deleteFile(fileId, filePath);
-      setUploadedFiles(prev => prev.filter(file => file.id !== fileId));
+      await fileService.deleteFile(fileId)
+      setUploadedFiles(prev => prev.filter(file => file.Id !== fileId))
     } catch (error) {
-      console.error('Error deleting file:', error);
+      console.error('Error deleting file:', error)
     }
-  };
+  }
 
-  return (
+return (
     <div className="max-w-5xl mx-auto">
+      {/* Header with user info and logout */}
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-surface-800 dark:text-surface-100">
+            Welcome, {user?.firstName || user?.name || 'User'}
+          </h1>
+          <p className="text-surface-600 dark:text-surface-400">
+            {user?.emailAddress || user?.email}
+          </p>
+        </div>
+        <button
+          onClick={logout}
+          className="flex items-center space-x-2 px-4 py-2 bg-surface-200 dark:bg-surface-700 hover:bg-surface-300 dark:hover:bg-surface-600 rounded-lg transition-colors"
+        >
+          <LogOut size={18} />
+          <span>Logout</span>
+        </button>
+      </div>
+
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
         className="text-center mb-12"
       >
-        <h1 className="text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+        <h2 className="text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
           Secure File Management
-        </h1>
+        </h2>
         <p className="text-lg text-surface-600 dark:text-surface-300 max-w-2xl mx-auto">
           Upload, organize, and share your files with confidence. DropVault provides a secure and intuitive platform for all your file management needs.
         </p>
@@ -72,9 +97,9 @@ const Home = () => {
         >
           <h2 className="text-2xl font-semibold mb-4">Your Files</h2>
           <div className="card divide-y divide-surface-200 dark:divide-surface-700">
-            {uploadedFiles.map((file, index) => (
+{uploadedFiles.map((file, index) => (
               <div 
-                key={file.id || `${file.name}-${index}`} 
+                key={file.Id || `${file.Name}-${index}`} 
                 className="flex items-center justify-between p-4 hover:bg-surface-50 dark:hover:bg-surface-700/50 transition-colors"
               >
                 <div className="flex items-center space-x-3">
@@ -82,11 +107,14 @@ const Home = () => {
                     {getFileIcon(file.type)}
                   </div>
                   <div>
-                    <p className="font-medium truncate max-w-xs">{file.name}</p>
+                    <p className="font-medium truncate max-w-xs">{file.Name}</p>
                     <div className="flex text-sm text-surface-500 space-x-3">
                       <span>{formatFileSize(file.size)}</span>
-                      {file.createdAt && (
-                        <span>Uploaded: {format(new Date(file.createdAt), 'MMM d, yyyy')}</span>
+                      {file.created_at && (
+                        <span>Uploaded: {format(new Date(file.created_at), 'MMM d, yyyy')}</span>
+                      )}
+                      {file.Tags && (
+                        <span className="text-secondary">Tags: {file.Tags}</span>
                       )}
                     </div>
                   </div>
@@ -104,7 +132,7 @@ const Home = () => {
                     </a>
                   )}
                   <button 
-                    onClick={() => handleDeleteFile(file.id, file.name)}
+                    onClick={() => handleDeleteFile(file.Id)}
                     className="p-2 text-surface-500 hover:text-red-500 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                     aria-label="Delete file"
                   >
@@ -124,9 +152,9 @@ const Home = () => {
           <p className="text-surface-500 dark:text-surface-400">No files uploaded yet. Start by uploading your first file.</p>
         </motion.div>
       )}
-    </div>
-  );
-};
+</div>
+  )
+}
 
 // Helper functions
 const getFileIcon = (fileType) => {

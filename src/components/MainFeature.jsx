@@ -1,17 +1,17 @@
-import { useState, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, X, Check, AlertCircle, FileText, Image, File } from 'lucide-react';
-import { useFirebase } from '../firebase/context';
+import { useState, useRef, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Upload, X, Check, AlertCircle, FileText, Image, File } from 'lucide-react'
+import { useSelector } from 'react-redux'
+import { fileService } from '../services/fileService'
 
 const MainFeature = ({ onFileUpload }) => {
-  const [isDragging, setIsDragging] = useState(false);
-  const [files, setFiles] = useState([]);
-  const [uploadProgress, setUploadProgress] = useState({});
-  const [uploadStatus, setUploadStatus] = useState({});
-  const [errors, setErrors] = useState({});
-  const fileInputRef = useRef(null);
-  
-  const { uploadFile } = useFirebase();
+  const [isDragging, setIsDragging] = useState(false)
+  const [files, setFiles] = useState([])
+  const [uploadProgress, setUploadProgress] = useState({})
+  const [uploadStatus, setUploadStatus] = useState({})
+  const [errors, setErrors] = useState({})
+  const fileInputRef = useRef(null)
+  const { user } = useSelector((state) => state.user)
 
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
@@ -70,32 +70,52 @@ const MainFeature = ({ onFileUpload }) => {
         return newStatus;
       });
       
-      // Upload each file to Firebase
+// Upload each file using the service
       validFiles.forEach(file => {
-        uploadFileToFirebase(file);
-      });
+        uploadFileToService(file)
+      })
     }
   }, []);
 
-  const uploadFileToFirebase = useCallback(async (file) => {
+const uploadFileToService = useCallback(async (file) => {
     try {
-      const updateProgress = (progress) => {
-        setUploadProgress(prev => ({ ...prev, [file.name]: progress }));
-      };
+      // Simulate progress updates
+      const progressInterval = setInterval(() => {
+        setUploadProgress(prev => {
+          const currentProgress = prev[file.name] || 0
+          const newProgress = Math.min(currentProgress + 10, 90)
+          return { ...prev, [file.name]: newProgress }
+        })
+      }, 100)
+
+      // Create file data for service
+      const fileData = {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        url: URL.createObjectURL(file), // Temporary URL for preview
+        user_id: user?.userId,
+        tags: '',
+        owner: user?.emailAddress || user?.email || ''
+      }
       
-      const fileData = await uploadFile(file, updateProgress);
+      const createdFile = await fileService.createFile(fileData)
+      
+      // Clear progress interval and set to 100%
+      clearInterval(progressInterval)
+      setUploadProgress(prev => ({ ...prev, [file.name]: 100 }))
       
       // Mark as complete
-      setUploadStatus(prev => ({ ...prev, [file.name]: 'complete' }));
+      setUploadStatus(prev => ({ ...prev, [file.name]: 'complete' }))
       
       // Add to parent component's uploaded files
-      onFileUpload([fileData]);
+      onFileUpload([createdFile])
     } catch (error) {
-      console.error('Upload error:', error);
-      setErrors(prev => ({ ...prev, [file.name]: `Upload failed: ${error.message}` }));
-      setUploadStatus(prev => ({ ...prev, [file.name]: 'error' }));
+      console.error('Upload error:', error)
+      setErrors(prev => ({ ...prev, [file.name]: `Upload failed: ${error.message}` }))
+      setUploadStatus(prev => ({ ...prev, [file.name]: 'error' }))
     }
-  }, [uploadFile, onFileUpload]);
+  }, [user, onFileUpload])
 
   const removeFile = useCallback((fileName) => {
     setFiles(prev => prev.filter(file => file.name !== fileName));
@@ -294,7 +314,6 @@ const MainFeature = ({ onFileUpload }) => {
         )}
       </AnimatePresence>
     </div>
-  );
-};
-
+)
+}
 export default MainFeature;

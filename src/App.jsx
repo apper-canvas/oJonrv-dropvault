@@ -1,72 +1,169 @@
-import { useState, useEffect } from 'react';
-import { Routes, Route } from 'react-router-dom';
-import { Moon, Sun } from 'lucide-react';
-import { motion } from 'framer-motion';
-import Home from './pages/Home';
-import NotFound from './pages/NotFound';
-import { FirebaseProvider } from './firebase/context';
+import { createContext, useEffect, useState } from 'react'
+import { Routes, Route, useNavigate } from 'react-router-dom'
+import { useDispatch, useSelector } from 'react-redux'
+import { setUser, clearUser } from './store/userSlice'
+import Login from './pages/Login'
+import Signup from './pages/Signup'
+import Callback from './pages/Callback'
+import ErrorPage from './pages/ErrorPage'
+import Home from './pages/Home'
+import NotFound from './pages/NotFound'
+
+// Create auth context
+export const AuthContext = createContext(null)
 
 function App() {
-  const [darkMode, setDarkMode] = useState(() => {
-    const savedMode = localStorage.getItem('darkMode');
-    return savedMode ? JSON.parse(savedMode) : 
-      window.matchMedia('(prefers-color-scheme: dark)').matches;
-  });
+  const navigate = useNavigate()
+  const dispatch = useDispatch()
+  const [isInitialized, setIsInitialized] = useState(false)
+  
+  // Get authentication status with proper error handling
+  const userState = useSelector((state) => state.user)
+  const isAuthenticated = userState?.isAuthenticated || false
 
+  // Initialize ApperUI once when the app loads
   useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-    localStorage.setItem('darkMode', JSON.stringify(darkMode));
-  }, [darkMode]);
+    const { ApperClient, ApperUI } = window.ApperSDK
+    const client = new ApperClient({
+      apperProjectId: import.meta.env.VITE_APPER_PROJECT_ID,
+      apperPublicKey: import.meta.env.VITE_APPER_PUBLIC_KEY
+    })
 
-  const toggleDarkMode = () => {
-    setDarkMode(prev => !prev);
-  };
+    // Initialize but don't show login yet
+    ApperUI.setup(client, {
+      target: '#authentication',
+      clientId: import.meta.env.VITE_APPER_PROJECT_ID,
+      view: 'both',
+      onSuccess: function (user) {
+        setIsInitialized(true)
+        // CRITICAL: This exact currentPath logic must be preserved in all implementations
+        // DO NOT simplify or modify this pattern as it ensures proper redirection flow
+        let currentPath = window.location.pathname + window.location.search
+        let redirectPath = new URLSearchParams(window.location.search).get('redirect')
+        const isAuthPage = currentPath.includes('/login') || currentPath.includes('/signup') || currentPath.includes('/callback') || currentPath.includes('/error')
+        
+        if (user) {
+          // User is authenticated
+          if (redirectPath) {
+            navigate(redirectPath)
+          } else if (!isAuthPage) {
+            if (!currentPath.includes('/login') && !currentPath.includes('/signup')) {
+              navigate(currentPath)
+            } else {
+              navigate('/')
+            }
+          } else {
+            navigate('/')
+          }
+          // Store user information in Redux
+          dispatch(setUser(JSON.parse(JSON.stringify(user))))
+        } else {
+          // User is not authenticated
+          if (!isAuthPage) {
+            navigate(
+              currentPath.includes('/signup')
+               ? `/signup?redirect=${currentPath}`
+               : currentPath.includes('/login')
+               ? `/login?redirect=${currentPath}`
+               : '/login')
+          } else if (redirectPath) {
+            if (
+              ![
+                'error',
+                'signup',
+                'login',
+                'callback'
+              ].some((path) => currentPath.includes(path)))
+              navigate(`/login?redirect=${redirectPath}`)
+            else {
+              navigate(currentPath)
+            }
+          } else if (isAuthPage) {
+            navigate(currentPath)
+          } else {
+            navigate('/login')
+          }
+          dispatch(clearUser())
+        }
+      },
+      onError: function(error) {
+        console.error("Authentication failed:", error)
+      }
+    })
+  }, [])
+
+  // Authentication methods to share via context
+  const authMethods = {
+    isInitialized,
+    logout: async () => {
+      try {
+        const { ApperUI } = window.ApperSDK
+        await ApperUI.logout()
+        dispatch(clearUser())
+        navigate('/login')
+      } catch (error) {
+        console.error("Logout failed:", error)
+      }
+    }
+  }
+
+  // Don't render routes until initialization is complete
+  if (!isInitialized) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-surface-50 dark:bg-surface-900">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-t-primary rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-surface-600 dark:text-surface-300">Initializing application...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <FirebaseProvider>
-      <div className="min-h-screen bg-gradient-to-br from-surface-50 to-surface-100 dark:from-surface-900 dark:to-surface-800 transition-colors duration-300">
-        <header className="sticky top-0 z-50 bg-white/80 dark:bg-surface-800/80 backdrop-blur-md border-b border-surface-200 dark:border-surface-700">
-          <div className="container mx-auto px-4 py-3 flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <motion.div 
-                initial={{ rotate: -10 }}
-                animate={{ rotate: 0 }}
-                className="text-primary font-bold text-2xl"
-              >
-                DropVault
-              </motion.div>
-            </div>
-            
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={toggleDarkMode}
-              className="p-2 rounded-full bg-surface-100 dark:bg-surface-700 hover:bg-surface-200 dark:hover:bg-surface-600 transition-colors"
-              aria-label="Toggle dark mode"
-            >
-              {darkMode ? <Sun size={20} /> : <Moon size={20} />}
-            </motion.button>
-          </div>
-        </header>
-
-        <main className="container mx-auto px-4 py-8">
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </main>
-
-        <footer className="border-t border-surface-200 dark:border-surface-700 py-6 mt-auto">
-          <div className="container mx-auto px-4 text-center text-surface-500 dark:text-surface-400 text-sm">
-            © {new Date().getFullYear()} DropVault. All rights reserved.
-          </div>
-        </footer>
+    <AuthContext.Provider value={authMethods}>
+      <div className="min-h-screen bg-surface-50 dark:bg-surface-900 text-surface-800 dark:text-surface-100">
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/callback" element={<Callback />} />
+          <Route path="/error" element={<ErrorPage />} />
+          <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
       </div>
-    </FirebaseProvider>
-  );
+    </AuthContext.Provider>
+  )
 }
 
-export default App;
+// Protected Route Component
+const ProtectedRoute = ({ children }) => {
+  const { isAuthenticated } = useSelector((state) => state.user)
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      const currentPath = window.location.pathname + window.location.search
+      navigate(`/login?redirect=${currentPath}`)
+    }
+  }, [isAuthenticated, navigate])
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-surface-50 dark:bg-surface-900">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-t-primary rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-surface-600 dark:text-surface-300">Checking authentication...</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="container mx-auto px-4 py-8">
+      {children}
+{children}
+    </div>
+  )
+}
+
+export default App
